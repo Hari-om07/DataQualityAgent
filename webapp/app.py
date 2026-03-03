@@ -34,178 +34,185 @@ def sklearn_to_df(loader_func):
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        dataset_type = request.form.get("dataset_type", "upload")
-
-        # -----------------------------
-        # Load dataset
-        # -----------------------------
-        if dataset_type == "upload":
-            file = request.files.get("dataset")
-            if not file or file.filename == "":
-                return "No file selected"
-            
-            filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-            file.save(filepath)
-
-            # Try UTF-8 first, fallback to ISO-8859-1 (Latin1)
-            try:
-                df = pd.read_csv(filepath)
-            except UnicodeDecodeError:
-                df = pd.read_csv(filepath, encoding="ISO-8859-1")
-            
-            dataset_name = file.filename.rsplit(".", 1)[0]
+        try:
+            dataset_type = request.form.get("dataset_type", "upload")
 
             # -----------------------------
-            # Normalize column names & target
+            # Load dataset
             # -----------------------------
-            df.columns = df.columns.str.strip()  # remove whitespace
-
-            # Strip all string values safely
-            for col in df.select_dtypes(include=['object']).columns:
-                df[col] = df[col].str.strip()
-
-            # Determine target column dynamically
             if dataset_type == "upload":
-                if "income" in df.columns:
-                    target_col = "income"
-                elif "Attrition" in df.columns:
-                    target_col = "Attrition"
-                else:
-                    return "Uploaded CSV must have a valid target column ('income' or 'Attrition')."
+                file = request.files.get("dataset")
+                if not file or file.filename == "":
+                    return "No file selected"
+                
+                filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+                file.save(filepath)
 
-        # Built-in dataset
-        elif dataset_type == "builtin":
-            ds_name = request.form.get("builtin_dataset")
-            loader_func = BUILTIN_DATASETS.get(ds_name)
-            if not loader_func:
-                return f"Dataset '{ds_name}' not found"
-            df = sklearn_to_df(loader_func)
-            dataset_name = ds_name.capitalize()
+                # Try UTF-8 first, fallback to ISO-8859-1 (Latin1)
+                try:
+                    df = pd.read_csv(filepath)
+                except UnicodeDecodeError:
+                    df = pd.read_csv(filepath, encoding="ISO-8859-1")
+                
+                dataset_name = file.filename.rsplit(".", 1)[0]
 
-        else:
-            return "Invalid dataset type"
-        
+                # -----------------------------
+                # Normalize column names & target
+                # -----------------------------
+                df.columns = df.columns.str.strip()  # remove whitespace
 
-        # -----------------------------
-        # Run analysis
-        # -----------------------------
-        quality_report = run_data_quality_audit(df)
-        bias_report = run_bias_fairness_check(df)
+                # Strip all string values safely
+                for col in df.select_dtypes(include=['object']).columns:
+                    df[col] = df[col].str.strip()
 
-        # Extract fairness metadata for predictive fairness
-        target_col = bias_report.get("target_column")
+                # Determine target column dynamically
+                if dataset_type == "upload":
+                    if "income" in df.columns:
+                        target_col = "income"
+                    elif "Attrition" in df.columns:
+                        target_col = "Attrition"
+                    else:
+                        return "Uploaded CSV must have a valid target column ('income' or 'Attrition')."
 
-        # Protected attributes are the keys of fairness_metrics
-        fairness_metrics = bias_report.get("fairness_metrics", {})
-        sensitive_cols = list(fairness_metrics.keys())
+            # Built-in dataset
+            elif dataset_type == "builtin":
+                ds_name = request.form.get("builtin_dataset")
+                loader_func = BUILTIN_DATASETS.get(ds_name)
+                if not loader_func:
+                    return f"Dataset '{ds_name}' not found"
+                df = sklearn_to_df(loader_func)
+                dataset_name = ds_name.capitalize()
 
-        print("Target column:", target_col)
-        print("Sensitive columns:", sensitive_cols)
+            else:
+                return "Invalid dataset type"
+            
 
-        # Run governance reasoning (NOW WITH PREDICTIVE FAIRNESS)
-        decision_report = run_agent_reasoning(
-            quality_report,
-            bias_report,
-            df=df,
-            target_col=target_col,
-            sensitive_cols=sensitive_cols
-        )
-        # ---------------------------------------
-        # Extract Agent Metrics (SEX only)
-        # ---------------------------------------
-        agent_eod = None
+            # -----------------------------
+            # Run analysis
+            # -----------------------------
+            quality_report = run_data_quality_audit(df)
+            bias_report = run_bias_fairness_check(df)
 
-        predictive_results = decision_report.get("predictive_fairness", [])
+            # Extract fairness metadata for predictive fairness
+            target_col = bias_report.get("target_column")
 
-        for result in predictive_results:
-            if result.get("protected_attribute") == "sex":
-                agent_eod = result.get("equal_opportunity_difference")
+            # Protected attributes are the keys of fairness_metrics
+            fairness_metrics = bias_report.get("fairness_metrics", {})
+            sensitive_cols = list(fairness_metrics.keys())
 
-        agent_spd = None
-        agent_dir = None
+            print("Target column:", target_col)
+            print("Sensitive columns:", sensitive_cols)
 
-        fairness_metrics = bias_report.get("fairness_metrics", {})
+            # Run governance reasoning (NOW WITH PREDICTIVE FAIRNESS)
+            decision_report = run_agent_reasoning(
+                quality_report,
+                bias_report,
+                df=df,
+                target_col=target_col,
+                sensitive_cols=sensitive_cols
+            )
+            # ---------------------------------------
+            # Extract Agent Metrics (SEX only)
+            # ---------------------------------------
+            agent_eod = None
 
-        if "sex" in fairness_metrics:
-            sex_metrics = fairness_metrics["sex"]
-            agent_spd = sex_metrics.get("statistical_parity_difference")
-            agent_dir = sex_metrics.get("disparate_impact_ratio")
-        
-        # ---------------------------------------
-        # AIF360 Benchmark (Adult dataset only)
-        # ---------------------------------------
+            predictive_results = decision_report.get("predictive_fairness", [])
 
-        if dataset_name.lower().startswith("adult"):
+            for result in predictive_results:
+                if result.get("protected_attribute") == "sex":
+                    agent_eod = result.get("equal_opportunity_difference")
 
-            aif360_results = run_aif360_adult_comparison(df)
+            agent_spd = None
+            agent_dir = None
 
-            def safe_round(val):
-                return round(val, 4) if isinstance(val, (int, float)) else "N/A"
+            fairness_metrics = bias_report.get("fairness_metrics", {})
 
-            def safe_diff(a, b):
-                if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-                    return abs(a - b)
-                return None
+            if "sex" in fairness_metrics:
+                sex_metrics = fairness_metrics["sex"]
+                agent_spd = sex_metrics.get("statistical_parity_difference")
+                agent_dir = sex_metrics.get("disparate_impact_ratio")
+            
+            # ---------------------------------------
+            # AIF360 Benchmark (Adult dataset only)
+            # ---------------------------------------
 
-            def alignment_status(diff):
-                if diff is None:
-                    return "N/A"
-                elif diff < 0.005:
-                    return "Aligned"
-                elif diff < 0.02:
-                    return "Minor Deviation"
-                else:
-                    return "Significant Deviation"
+            if dataset_name.lower().startswith("adult"):
 
-            spd_diff = safe_diff(agent_spd, aif360_results.get("SPD"))
-            dir_diff = safe_diff(agent_dir, aif360_results.get("DIR"))
-            eod_diff = safe_diff(agent_eod, aif360_results.get("EOD"))
+                aif360_results = run_aif360_adult_comparison(df)
 
-            comparison_table = [
-                {
-                    "metric": "Statistical Parity Difference (SPD)",
-                    "agent": safe_round(agent_spd),
-                    "aif360": safe_round(aif360_results.get("SPD")),
-                    "diff": safe_round(spd_diff),
-                    "alignment": alignment_status(spd_diff)
-                },
-                {
-                    "metric": "Disparate Impact Ratio (DIR)",
-                    "agent": safe_round(agent_dir),
-                    "aif360": safe_round(aif360_results.get("DIR")),
-                    "diff": safe_round(dir_diff),
-                    "alignment": alignment_status(dir_diff)
-                },
-                {
-                    "metric": "Equal Opportunity Difference (EOD)",
-                    "agent": safe_round(agent_eod),
-                    "aif360": safe_round(aif360_results.get("EOD")),
-                    "diff": safe_round(eod_diff),
-                    "alignment": alignment_status(eod_diff)
-                }
-            ]
+                def safe_round(val):
+                    return round(val, 4) if isinstance(val, (int, float)) else "N/A"
 
-        else:
-            comparison_table = None
+                def safe_diff(a, b):
+                    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                        return abs(a - b)
+                    return None
 
-        # Merge all for template
-        merged_report = {
-            "severity": quality_report.get("severity", "UNKNOWN"),
-            "missing_values": quality_report.get("missing_values", {}),
-            "schema_warnings": quality_report.get("schema_warnings", []),
-            "fairness_analysis": bias_report,
-            "predictive_fairness": decision_report.get("predictive_fairness", []),
-            "agent_decision": decision_report
-        }
+                def alignment_status(diff):
+                    if diff is None:
+                        return "N/A"
+                    elif diff < 0.005:
+                        return "Aligned"
+                    elif diff < 0.02:
+                        return "Minor Deviation"
+                    else:
+                        return "Significant Deviation"
 
-        return render_template(
-            "result.html",
-            report=merged_report,
-            dataset_name=dataset_name,
-            comparison_table=comparison_table
-        )
+                spd_diff = safe_diff(agent_spd, aif360_results.get("SPD"))
+                dir_diff = safe_diff(agent_dir, aif360_results.get("DIR"))
+                eod_diff = safe_diff(agent_eod, aif360_results.get("EOD"))
+
+                comparison_table = [
+                    {
+                        "metric": "Statistical Parity Difference (SPD)",
+                        "agent": safe_round(agent_spd),
+                        "aif360": safe_round(aif360_results.get("SPD")),
+                        "diff": safe_round(spd_diff),
+                        "alignment": alignment_status(spd_diff)
+                    },
+                    {
+                        "metric": "Disparate Impact Ratio (DIR)",
+                        "agent": safe_round(agent_dir),
+                        "aif360": safe_round(aif360_results.get("DIR")),
+                        "diff": safe_round(dir_diff),
+                        "alignment": alignment_status(dir_diff)
+                    },
+                    {
+                        "metric": "Equal Opportunity Difference (EOD)",
+                        "agent": safe_round(agent_eod),
+                        "aif360": safe_round(aif360_results.get("EOD")),
+                        "diff": safe_round(eod_diff),
+                        "alignment": alignment_status(eod_diff)
+                    }
+                ]
+
+            else:
+                comparison_table = None
+
+            # Merge all for template
+            merged_report = {
+                "severity": quality_report.get("severity", "UNKNOWN"),
+                "missing_values": quality_report.get("missing_values", {}),
+                "schema_warnings": quality_report.get("schema_warnings", []),
+                "fairness_analysis": bias_report,
+                "predictive_fairness": decision_report.get("predictive_fairness", []),
+                "agent_decision": decision_report
+            }
+
+            return render_template(
+                "result.html",
+                report=merged_report,
+                dataset_name=dataset_name,
+                comparison_table=comparison_table
+            )
+        except Exception as e:  # <-- CATCH any error
+            import traceback
+            traceback.print_exc()  # Print full stack trace in logs
+            return f"Internal error: {str(e)}"  # Show message on browser
 
     return render_template("index.html")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
