@@ -59,15 +59,19 @@ def index():
             # Normalize column names & target
             # -----------------------------
             df.columns = df.columns.str.strip()  # remove whitespace
-            # Strip whitespace from column names
-            df.columns = df.columns.str.strip()
 
-            # Strip whitespace from string values safely
+            # Strip all string values safely
             for col in df.select_dtypes(include=['object']).columns:
                 df[col] = df[col].str.strip()
-            # Ensure target column exists
-            if 'income' not in df.columns:
-                return "Uploaded CSV must have 'income' column as target."
+
+            # Determine target column dynamically
+            if dataset_type == "upload":
+                if "income" in df.columns:
+                    target_col = "income"
+                elif "Attrition" in df.columns:
+                    target_col = "Attrition"
+                else:
+                    return "Uploaded CSV must have a valid target column ('income' or 'Attrition')."
 
         # Built-in dataset
         elif dataset_type == "builtin":
