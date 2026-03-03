@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Data Quality & Fairness Audit</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            margin: 0; padding: 0;
+        }
+        .container {
+            width: 90%;
+            max-width: 1000px;
+            margin: 40px auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        pre {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        .warning { color: #d9534f; }
+        .medium { color: #f0ad4e; }
+        .low { color: #5bc0de; }
+        .high { color: #d9534f; font-weight: bold; }
+        .action-list li {
+            margin-bottom: 8px;
+        }
+        a.button {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #0275d8;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 6px;
+        }
+        a.button:hover {
+            background: #025aa5;
+        }
+                /* --- Fairness Risk Colors --- */
+        .risk-low {
+            color: green;
+            font-weight: bold;
+        }
+
+        .risk-medium {
+            color: orange;
+            font-weight: bold;
+        }
+
+        .risk-high {
+            color: red;
+            font-weight: bold;
+        }
+
+        .fairness-box {
+            background-color: #f9f9f9;
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Data Quality Agent</h1>
+
+    {% if dataset_name %}
+        <p><strong>Dataset:</strong> {{ dataset_name }}</p>
+    {% endif %}
+
+    <!-- Data Quality Section -->
+    <div class="section">
+        <h2>1. Data Quality</h2>
+        <p>Overall Severity: 
+            <span class="{{ report.severity | lower }}">{{ report.severity }}</span>
+        </p>
+
+        <h3>Missing Values (%)</h3>
+        {% if report.missing_values %}
+            <pre>{{ report.missing_values | tojson(indent=4) }}</pre>
+        {% else %}
+            <p>None detected</p>
+        {% endif %}
+
+        <h3>Schema Warnings</h3>
+        {% if report.schema_warnings %}
+            <ul>
+                {% for w in report.schema_warnings %}
+                    <li class="warning">{{ w }}</li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No warnings</p>
+        {% endif %}
+    </div>
+
+    <!-- Fairness Analysis Section -->
+    <div class="section">
+        <h2>2. Bias & Fairness</h2>
+        {% if report.fairness_analysis %}
+            <p>Outcome Column: <strong>{{ report.fairness_analysis.outcome_column }}</strong></p>
+            <p>Protected Attributes: 
+                <strong>{{ report.fairness_analysis.protected_attributes | join(', ') }}</strong>
+            </p>
+
+            <h3>Outcome Disparity</h3>
+            <pre>{{ report.fairness_analysis.outcome_disparity | tojson(indent=4) }}</pre>
+
+            {% if report.fairness_analysis.representation_bias %}
+            <h3>Representation Bias</h3>
+            <pre>{{ report.fairness_analysis.representation_bias | tojson(indent=4) }}</pre>
+            {% endif %}
+
+            <!-- ✅ NEW: Formal Fairness Metrics -->
+            {% if report.fairness_analysis.fairness_metrics %}
+            <h3>Formal Fairness Metrics</h3>
+
+            {% for attr, metrics in report.fairness_analysis.fairness_metrics.items() %}
+            <div class="fairness-box">
+                <h4>{{ attr }}</h4>
+
+                <p><strong>Privileged Group:</strong> {{ metrics.privileged_group }}</p>
+                <p><strong>Unprivileged Group:</strong> {{ metrics.unprivileged_group }}</p>
+
+                <p><strong>Statistical Parity Difference (SPD):</strong> 
+                    {{ metrics.statistical_parity_difference }}
+                </p>
+
+                <p><strong>Disparate Impact Ratio (DIR):</strong> 
+                    {{ metrics.disparate_impact_ratio }}
+                </p>
+
+                <p><strong>Fairness Risk:</strong> 
+                    <span class="risk-{{ metrics.fairness_risk | lower }}">
+                        {{ metrics.fairness_risk }}
+                    </span>
+                </p>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+        {% else %}
+            <p>No fairness analysis performed.</p>
+        {% endif %}
+        
+        <h3>Predictive Fairness (Equal Opportunity Difference)</h3>
+
+        {% for item in report.predictive_fairness %}
+            <div>
+                <p><strong>Attribute:</strong> {{ item.protected_attribute }}</p>
+                <p><strong>EOD:</strong> {{ item.equal_opportunity_difference }}</p>
+                <p><strong>Risk:</strong> {{ item.risk_level }}</p>
+            </div>
+            <hr>
+        {% endfor %}
+        {% if comparison_table %}
+        <hr>
+        <h3>Benchmark Comparison (AIF360 vs Agent)</h3>
+
+        <table border="1" cellpadding="6">
+            <tr>
+                <th>Metric</th>
+                <th>Your Agent</th>
+                <th>AIF360</th>
+                <th>Absolute Difference</th>
+                <th>Alignment Status</th>
+            </tr>
+
+            {% for row in comparison_table %}
+            <tr>
+                <td>{{ row.metric }}</td>
+                <td>{{ row.agent }}</td>
+                <td>{{ row.aif360 }}</td>
+                <td>{{ row.diff }}</td>
+                <td>{{ row.alignment }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+    </div>
+
+    <!-- Agent Decision Section -->
+    <div class="section">
+        <h2>3. Agent Decision</h2>
+        {% if report.agent_decision %}
+            <p>Human Review Required: <strong>{{ report.agent_decision.human_review_required }}</strong></p>
+            {% if report.agent_decision.issues_detected %}
+                <h3>Issues Detected</h3>
+                <ul class="action-list">
+                    {% for issue in report.agent_decision.issues_detected %}
+                        <li>{{ issue }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            {% if report.agent_decision.recommended_actions %}
+                <h3>Recommended Actions</h3>
+                <ul class="action-list">
+                    {% for action in report.agent_decision.recommended_actions %}
+                        <li>{{ action }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        {% else %}
+            <p>No agent decision available.</p>
+        {% endif %}
+    </div>
+
+    <a href="/" class="button">Analyze Another Dataset</a>
+</div>
+</body>
+</html>
