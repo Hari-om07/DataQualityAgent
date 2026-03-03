@@ -36,7 +36,9 @@ def index():
     if request.method == "POST":
         dataset_type = request.form.get("dataset_type", "upload")
 
-        # Uploaded CSV
+        # -----------------------------
+        # Load dataset
+        # -----------------------------
         if dataset_type == "upload":
             file = request.files.get("dataset")
             if not file or file.filename == "":
@@ -51,7 +53,21 @@ def index():
             except UnicodeDecodeError:
                 df = pd.read_csv(filepath, encoding="ISO-8859-1")
             
-            dataset_name = file.filename.rsplit(".", 1)[0]  # remove extension
+            dataset_name = file.filename.rsplit(".", 1)[0]
+
+            # -----------------------------
+            # Normalize column names & target
+            # -----------------------------
+            df.columns = df.columns.str.strip()  # remove whitespace
+            # Strip whitespace from column names
+            df.columns = df.columns.str.strip()
+
+            # Strip whitespace from string values safely
+            for col in df.select_dtypes(include=['object']).columns:
+                df[col] = df[col].str.strip()
+            # Ensure target column exists
+            if 'income' not in df.columns:
+                return "Uploaded CSV must have 'income' column as target."
 
         # Built-in dataset
         elif dataset_type == "builtin":
