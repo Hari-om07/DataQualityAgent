@@ -10,7 +10,7 @@ from src.aif360_adult import run_aif360_adult_comparison
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "uploads"
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # 1️⃣ Built-in datasets mapping
